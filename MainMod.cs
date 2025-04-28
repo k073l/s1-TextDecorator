@@ -1,12 +1,18 @@
 using MelonLoader;
 using HarmonyLib;
-using Il2CppScheduleOne.UI;
-using Il2CppTMPro;
 using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.UI;
-using System.Collections.Generic;
 using System.Collections;
+
+#if MONO
+using ScheduleOne.UI;
+using TMPro;
+#else
+using Il2CppScheduleOne.UI;
+using Il2CppTMPro;
+#endif
+
 
 [assembly:
     MelonInfo(typeof(TextDecorator.TextDecorator), TextDecorator.BuildInfo.Name, TextDecorator.BuildInfo.Version,
@@ -19,9 +25,9 @@ namespace TextDecorator
     public static class BuildInfo
     {
         public const string Name = "Text Decorator";
-        public const string Description = "Text formatting options";
+        public const string Description = "Adds text formatting options to the text input screen.";
         public const string Author = "k073l";
-        public const string Version = "0.1";
+        public const string Version = "0.5";
     }
 
     public class TextDecorator : MelonMod

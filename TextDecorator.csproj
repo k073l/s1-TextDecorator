@@ -6,6 +6,7 @@
         <Nullable>disable</Nullable>
 	    <LangVersion>10.0</LangVersion>
 	    <RootNamespace>TextDecorator</RootNamespace>
+		<AssemblyName>TextDecorator-IL2CPP</AssemblyName>
 	</PropertyGroup>
 
 	<ItemGroup>
