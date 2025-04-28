@@ -6,8 +6,11 @@ using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.UI;
 using System.Collections.Generic;
+using System.Collections;
 
-[assembly: MelonInfo(typeof(TextDecorator.TextDecorator), TextDecorator.BuildInfo.Name, TextDecorator.BuildInfo.Version, TextDecorator.BuildInfo.Author)]
+[assembly:
+    MelonInfo(typeof(TextDecorator.TextDecorator), TextDecorator.BuildInfo.Name, TextDecorator.BuildInfo.Version,
+        TextDecorator.BuildInfo.Author)]
 [assembly: MelonColor(1, 255, 215, 0)]
 [assembly: MelonGame("TVGS", "Schedule I")]
 
@@ -31,31 +34,52 @@ namespace TextDecorator
             MelonLogger.Msg("TextDecorator initialized");
         }
 
+        private struct FormatButtonData
+        {
+            public string Label;
+            public string TagKey;
+            public Color ButtonColor;
+
+            public FormatButtonData(string label, string tagKey, Color buttonColor)
+            {
+                Label = label;
+                TagKey = tagKey;
+                ButtonColor = buttonColor;
+            }
+        }
+
+
         [HarmonyPatch(typeof(TextInputScreen))]
         public static class TextInputScreenPatch
         {
             private static Dictionary<string, Button> formatButtons = new Dictionary<string, Button>();
-            private static Dictionary<string, string> formatTags = new Dictionary<string, string>
+
+            private static List<FormatButtonData> colorButtons = new List<FormatButtonData>
+            {
+                new FormatButtonData("R", "color=#FF5555", new Color(1, 0.33f, 0.33f)),
+                new FormatButtonData("G", "color=#55FF55", new Color(0.33f, 1, 0.33f)),
+                new FormatButtonData("B", "color=#5555FF", new Color(0.33f, 0.33f, 1)),
+                new FormatButtonData("Y", "color=#FFFF55", new Color(1, 1, 0.33f)),
+                new FormatButtonData("P", "color=#FF55FF", new Color(1, 0.33f, 1)),
+            };
+
+            private static readonly Dictionary<string, string> formatTags = new Dictionary<string, string>
             {
                 { "bold", "b" },
                 { "italic", "i" },
                 { "underline", "u" },
-                { "strikethrough", "s" },
-                { "red", "color=#FF5555" },
-                { "green", "color=#55FF55" },
-                { "blue", "color=#5555FF" },
-                { "yellow", "color=#FFFF55" },
-                { "purple", "color=#FF55FF" }
+                { "strikethrough", "s" }
             };
 
             private static TMP_InputField inputField;
+            private static TextMeshProUGUI warningText;
 
             [HarmonyPostfix]
             [HarmonyPatch("Open")]
             public static void AddFormattingUI(TextInputScreen __instance)
             {
                 inputField = __instance.InputField;
-                inputField.characterLimit = 10000; // 100 is too little with formatting
+                inputField.characterLimit = 10000;
                 formatButtons.Clear();
 
                 GameObject editorContainer = new GameObject("FormattingEditorContainer");
@@ -73,6 +97,24 @@ namespace TextDecorator
                 verticalLayout.childAlignment = TextAnchor.UpperCenter;
                 verticalLayout.childForceExpandWidth = true;
                 verticalLayout.childForceExpandHeight = false;
+
+                // add warning text
+                GameObject warningTextObj = new GameObject("WarningText");
+                warningTextObj.transform.SetParent(editorContainer.transform, false);
+                RectTransform warningTextRect = warningTextObj.AddComponent<RectTransform>();
+                warningTextRect.sizeDelta = new Vector2(480, 35);
+                warningText = warningTextObj.AddComponent<TextMeshProUGUI>();
+                warningText.text = "Warning: Text formatting works only on selections.";
+                warningText.fontSize = 14;
+                warningText.color = new Color(1, 1, 1);
+                warningText.alignment = TextAlignmentOptions.Center;
+                warningText.fontStyle = FontStyles.Bold;
+
+                RectTransform warningTextRectTransform = warningText.GetComponent<RectTransform>();
+                warningTextRectTransform.anchorMin = Vector2.zero;
+                warningTextRectTransform.anchorMax = Vector2.one;
+                warningTextRectTransform.offsetMin = Vector2.zero;
+                warningTextRectTransform.offsetMax = Vector2.zero;
 
                 GameObject buttonPanel = new GameObject("FormattingButtons");
                 buttonPanel.transform.SetParent(editorContainer.transform, false);
@@ -96,12 +138,108 @@ namespace TextDecorator
                 CreateFormatButton(buttonPanel, "S", "strikethrough");
 
                 CreateDivider(buttonPanel);
+                
+                foreach (var btn in colorButtons)
+                {
+                    if (!formatTags.ContainsKey(btn.TagKey))
+                    {
+                        formatTags[btn.TagKey] = btn.TagKey;
+                    }
+                    CreateColorButton(buttonPanel, btn.Label, btn.TagKey, btn.ButtonColor);
+                }
 
-                CreateColorButton(buttonPanel, "R", "red", new Color(1, 0.33f, 0.33f));
-                CreateColorButton(buttonPanel, "G", "green", new Color(0.33f, 1, 0.33f));
-                CreateColorButton(buttonPanel, "B", "blue", new Color(0.33f, 0.33f, 1));
-                CreateColorButton(buttonPanel, "Y", "yellow", new Color(1, 1, 0.33f));
-                CreateColorButton(buttonPanel, "P", "purple", new Color(1, 0.33f, 1));
+                GameObject customColorPanel = new GameObject("CustomColorPanel");
+                customColorPanel.transform.SetParent(editorContainer.transform, false);
+                RectTransform customColorRect = customColorPanel.AddComponent<RectTransform>();
+                customColorRect.sizeDelta = new Vector2(480, 40);
+
+                HorizontalLayoutGroup customColorLayout = customColorPanel.AddComponent<HorizontalLayoutGroup>();
+                customColorLayout.spacing = 10;
+                customColorLayout.childAlignment = TextAnchor.MiddleCenter;
+                customColorLayout.childControlHeight = false;
+                customColorLayout.childControlWidth = false;
+                customColorLayout.padding = new RectOffset(10, 10, 5, 5);
+                
+                GameObject hexInputObj = new GameObject("HexInputField");
+                hexInputObj.transform.SetParent(customColorPanel.transform, false);
+                RectTransform hexInputRect = hexInputObj.AddComponent<RectTransform>();
+                hexInputRect.sizeDelta = new Vector2(150, 35);
+
+                TMP_InputField hexInput = hexInputObj.AddComponent<TMP_InputField>();
+                RectTransform viewport = new GameObject("Viewport").AddComponent<RectTransform>();
+                viewport.SetParent(hexInput.transform, false);
+                hexInput.textViewport = viewport;
+
+                TextMeshProUGUI textComponent = new GameObject("Text").AddComponent<TextMeshProUGUI>();
+                textComponent.transform.SetParent(viewport, false);
+                textComponent.fontSize = 14;
+                textComponent.alignment = TextAlignmentOptions.MidlineLeft;
+                hexInput.textComponent = textComponent;
+
+                hexInput.text = "#FFFFFF";
+
+                // adding custom color button
+                GameObject addButtonObj = new GameObject("AddColorButton");
+                addButtonObj.transform.SetParent(customColorPanel.transform, false);
+                RectTransform addButtonRect = addButtonObj.AddComponent<RectTransform>();
+                addButtonRect.sizeDelta = new Vector2(100, 35);
+
+                Button addButton = addButtonObj.AddComponent<Button>();
+                Image addButtonImage = addButtonObj.AddComponent<Image>();
+                addButtonImage.color = new Color(0.3f, 0.3f, 0.3f);
+
+                GameObject addButtonTextObj = new GameObject("Text");
+                addButtonTextObj.transform.SetParent(addButtonObj.transform, false);
+                TextMeshProUGUI addButtonText = addButtonTextObj.AddComponent<TextMeshProUGUI>();
+                addButtonText.text = "Add Color";
+                addButtonText.fontSize = 16;
+                addButtonText.color = Color.white;
+                addButtonText.alignment = TextAlignmentOptions.Center;
+                RectTransform addButtonTextRect = addButtonText.GetComponent<RectTransform>();
+                addButtonTextRect.anchorMin = Vector2.zero;
+                addButtonTextRect.anchorMax = Vector2.one;
+                addButtonTextRect.offsetMin = Vector2.zero;
+                addButtonTextRect.offsetMax = Vector2.zero;
+
+                addButton.onClick.AddListener((UnityAction)(() =>
+                {
+                    string hex = hexInput.text.Trim();
+                    if (!hex.StartsWith("#")) hex = "#" + hex;
+
+                    if (ColorUtility.TryParseHtmlString(hex, out Color newColor))
+                    {
+                        string tagKey = $"color={hex}";
+                        if (!formatTags.ContainsKey(tagKey))
+                        {
+                            string label = hex.Substring(1, 2).ToUpper();
+                            formatTags[tagKey] = tagKey;
+
+                            var newBtn = new FormatButtonData(label, tagKey, newColor);
+                            colorButtons.Add(newBtn);
+                            CreateColorButton(buttonPanel, label, tagKey, newColor);
+
+                            MelonLogger.Msg($"Added custom color button: {hex}");
+                        }
+                    }
+                    else
+                    {
+                        MelonLogger.Msg($"Invalid HEX color: {hexInput.text}");
+                    }
+                }));
+            }
+
+            private static void FlashWarningText()
+            {
+                if (warningText == null) return;
+                MelonLogger.Msg("No selection, flashing warning text!");
+                MelonCoroutines.Start(FlashTextCoroutine());
+            }
+
+            private static IEnumerator FlashTextCoroutine()
+            {
+                warningText.color = Color.yellow;
+                yield return new WaitForSeconds(0.5f);
+                warningText.color = Color.white;
             }
 
             private static void CreateDivider(GameObject parent)
@@ -147,10 +285,7 @@ namespace TextDecorator
                 textRect.offsetMin = Vector2.zero;
                 textRect.offsetMax = Vector2.zero;
 
-                button.onClick.AddListener((UnityAction)(() =>
-                {
-                    ApplyFormatting(formatKey);
-                }));
+                button.onClick.AddListener((UnityAction)(() => { ApplyFormatting(formatKey); }));
 
                 formatButtons[formatKey] = button;
             }
@@ -186,10 +321,7 @@ namespace TextDecorator
                 textRect.offsetMin = Vector2.zero;
                 textRect.offsetMax = Vector2.zero;
 
-                button.onClick.AddListener((UnityAction)(() =>
-                {
-                    ApplyFormatting(colorKey);
-                }));
+                button.onClick.AddListener((UnityAction)(() => { ApplyFormatting(colorKey); }));
 
                 formatButtons[colorKey] = button;
             }
@@ -204,7 +336,11 @@ namespace TextDecorator
                 if (start > end)
                     (start, end) = (end, start);
 
-                if (start == end) return;
+                if (start == end)
+                {
+                    FlashWarningText();
+                    return;
+                }
 
                 string tagType = formatTags[formatKey];
                 string openTag = $"<{tagType}>";
