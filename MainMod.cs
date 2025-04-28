@@ -49,13 +49,13 @@ namespace TextDecorator
             };
 
             private static TMP_InputField inputField;
-            private static TextMeshProUGUI previewText;
 
             [HarmonyPostfix]
             [HarmonyPatch("Open")]
             public static void AddFormattingUI(TextInputScreen __instance)
             {
                 inputField = __instance.InputField;
+                inputField.characterLimit = 10000; // 100 is too little with formatting
                 formatButtons.Clear();
 
                 GameObject editorContainer = new GameObject("FormattingEditorContainer");
@@ -200,48 +200,31 @@ namespace TextDecorator
 
                 int start = inputField.selectionAnchorPosition;
                 int end = inputField.selectionFocusPosition;
-                string text = inputField.text;
 
-                // ensure order
                 if (start > end)
-                {
-                    int temp = start;
-                    start = end;
-                    end = temp;
-                }
-                
-                // im over it, for now only selections
-                bool hasSelection = start != end;
-                if (!hasSelection) return;
+                    (start, end) = (end, start);
 
-                // get tag
+                if (start == end) return;
+
                 string tagType = formatTags[formatKey];
                 string openTag = $"<{tagType}>";
                 string closeTag = formatKey.StartsWith("color") ? "</color>" : $"</{tagType}>";
 
-                // probably source of all evil
-                string before = text.Substring(0, start);
-                string selected = text.Substring(start, end - start);
-                string after = text.Substring(end);
-                
-                string newText = before + openTag + selected + closeTag + after;
-                // im just curious why it breaks
-                MelonLogger.Msg("Text " + newText);
+                MelonLogger.Msg($"Applying formatting: {formatKey} from {start} to {end}");
+                MelonLogger.Msg($"Tags: {openTag} {closeTag}");
+
+                string oldText = inputField.text;
+                string newText = TextFormatterUtils.ApplyTag(oldText, start, end, openTag, closeTag);
+
+                MelonLogger.Msg($"Old text: {oldText}; New text: {newText}");
                 inputField.text = newText;
-
-                // try to NOT land in a tag
-                int tagLength = openTag.Length + closeTag.Length;
-                inputField.selectionAnchorPosition = start;
-                inputField.selectionFocusPosition = end + tagLength;
             }
-
 
             [HarmonyPrefix]
             [HarmonyPatch("Close")]
             public static void CleanupFormattingUI()
             {
                 inputField = null;
-                previewText = null;
                 formatButtons.Clear();
 
                 GameObject container = GameObject.Find("FormattingEditorContainer");
