@@ -4,10 +4,14 @@ using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.UI;
 using System.Collections;
+using MelonLoader.Utils;
+using Newtonsoft.Json;
+using UnityEngine.Serialization;
 
 #if MONO
 using ScheduleOne.UI;
 using TMPro;
+
 #else
 using Il2CppScheduleOne.UI;
 using Il2CppTMPro;
@@ -27,8 +31,54 @@ namespace TextDecorator
         public const string Name = "Text Decorator";
         public const string Description = "Adds text formatting options to the text input screen.";
         public const string Author = "k073l";
-        public const string Version = "0.5";
+        public const string Version = "0.6.0";
     }
+
+    [Serializable]
+    public struct ColorData
+    {
+        public int R;
+        public int G;
+        public int B;
+
+        public ColorData(int r, int g, int b)
+        {
+            R = r;
+            G = g;
+            B = b;
+        }
+
+        public static ColorData FromColor(Color color)
+        {
+            return new ColorData(
+                Mathf.RoundToInt(color.r * 255),
+                Mathf.RoundToInt(color.g * 255),
+                Mathf.RoundToInt(color.b * 255));
+        }
+
+        public Color ToColor()
+        {
+            return new Color(R / 255f, G / 255f, B / 255f);
+        }
+    }
+
+    [Serializable]
+    public struct FormatButtonData
+    {
+        public string Label;
+        public string TagKey;
+        public ColorData ButtonColorData;
+
+        [JsonIgnore] public Color ButtonColor => ButtonColorData.ToColor();
+
+        public FormatButtonData(string label, string tagKey, Color buttonColor)
+        {
+            Label = label;
+            TagKey = tagKey;
+            ButtonColorData = ColorData.FromColor(buttonColor);
+        }
+    }
+
 
     public class TextDecorator : MelonMod
     {
@@ -40,18 +90,10 @@ namespace TextDecorator
             MelonLogger.Msg("TextDecorator initialized");
         }
 
-        private struct FormatButtonData
+        [Serializable]
+        private class CustomColorConfig
         {
-            public string Label;
-            public string TagKey;
-            public Color ButtonColor;
-
-            public FormatButtonData(string label, string tagKey, Color buttonColor)
-            {
-                Label = label;
-                TagKey = tagKey;
-                ButtonColor = buttonColor;
-            }
+            public List<FormatButtonData> customColors = [];
         }
 
 
@@ -79,6 +121,63 @@ namespace TextDecorator
 
             private static TMP_InputField inputField;
             private static TextMeshProUGUI warningText;
+
+            private static readonly string ConfigFilePath =
+                Path.Combine(MelonEnvironment.UserDataDirectory, "TextDecoratorColors.json");
+
+            private static void SaveCustomColors()
+            {
+                var config = new CustomColorConfig
+                {
+                    customColors = colorButtons.Where(b => !IsDefaultColor(b.TagKey)).ToList()
+                };
+
+                try
+                {
+                    string json = JsonConvert.SerializeObject(config, Formatting.Indented);
+                    File.WriteAllText(ConfigFilePath, json);
+                }
+                catch (Exception ex)
+                {
+                    MelonLogger.Error($"Failed to save custom colors: {ex.Message}");
+                }
+            }
+
+            private static void LoadCustomColors(GameObject buttonPanel)
+            {
+                if (!File.Exists(ConfigFilePath)) return;
+
+                try
+                {
+                    string json = File.ReadAllText(ConfigFilePath);
+                    var config = JsonConvert.DeserializeObject<CustomColorConfig>(json);
+                    foreach (var btn in config.customColors)
+                    {
+                        formatTags[btn.TagKey] = btn.TagKey;
+                        if (colorButtons.Any(b => b.TagKey == btn.TagKey))
+                        {
+                            continue;
+                        }
+                        colorButtons.Add(btn);
+                        CreateColorButton(buttonPanel, btn.Label, btn.TagKey, btn.ButtonColor, true);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    MelonLogger.Error($"Failed to load custom colors: {ex.Message}");
+                }
+            }
+
+            private static bool IsDefaultColor(string tagKey)
+            {
+                return tagKey switch
+                {
+                    "color=#FF5555" or "color=#55FF55" or "color=#5555FF" or
+                        "color=#FFFF55" or "color=#FF55FF" => true,
+                    _ => false
+                };
+            }
+
 
             [HarmonyPostfix]
             [HarmonyPatch("Open")]
@@ -144,14 +243,18 @@ namespace TextDecorator
                 CreateFormatButton(buttonPanel, "S", "strikethrough");
 
                 CreateDivider(buttonPanel);
-                
+
                 foreach (var btn in colorButtons)
                 {
                     if (!formatTags.ContainsKey(btn.TagKey))
                     {
                         formatTags[btn.TagKey] = btn.TagKey;
                     }
-                    CreateColorButton(buttonPanel, btn.Label, btn.TagKey, btn.ButtonColor);
+
+                    if (IsDefaultColor(btn.TagKey))
+                        CreateColorButton(buttonPanel, btn.Label, btn.TagKey, btn.ButtonColor);
+                    else
+                        CreateColorButton(buttonPanel, btn.Label, btn.TagKey, btn.ButtonColor, true);
                 }
 
                 GameObject customColorPanel = new GameObject("CustomColorPanel");
@@ -165,7 +268,7 @@ namespace TextDecorator
                 customColorLayout.childControlHeight = false;
                 customColorLayout.childControlWidth = false;
                 customColorLayout.padding = new RectOffset(10, 10, 5, 5);
-                
+
                 GameObject hexInputObj = new GameObject("HexInputField");
                 hexInputObj.transform.SetParent(customColorPanel.transform, false);
                 RectTransform hexInputRect = hexInputObj.AddComponent<RectTransform>();
@@ -219,12 +322,18 @@ namespace TextDecorator
                         {
                             string label = hex.Substring(1, 2).ToUpper();
                             formatTags[tagKey] = tagKey;
+                            
+                            if (colorButtons.Any(b => b.TagKey == tagKey))
+                            {
+                                return;
+                            }
 
                             var newBtn = new FormatButtonData(label, tagKey, newColor);
                             colorButtons.Add(newBtn);
-                            CreateColorButton(buttonPanel, label, tagKey, newColor);
+                            CreateColorButton(buttonPanel, label, tagKey, newColor, true);
 
                             MelonLogger.Msg($"Added custom color button: {hex}");
+                            SaveCustomColors();
                         }
                     }
                     else
@@ -232,6 +341,7 @@ namespace TextDecorator
                         MelonLogger.Msg($"Invalid HEX color: {hexInput.text}");
                     }
                 }));
+                LoadCustomColors(buttonPanel);
             }
 
             private static void FlashWarningText()
@@ -296,17 +406,18 @@ namespace TextDecorator
                 formatButtons[formatKey] = button;
             }
 
-            private static void CreateColorButton(GameObject parent, string label, string colorKey, Color buttonColor)
+            private static void CreateColorButton(GameObject parent, string label, string colorKey, Color buttonColor,
+                bool isCustom = false)
             {
                 GameObject buttonObj = new GameObject(label + "Button");
                 buttonObj.transform.SetParent(parent.transform, false);
 
+                RectTransform rectTransform = buttonObj.AddComponent<RectTransform>();
+                rectTransform.sizeDelta = new Vector2(35, 35);
+
                 Button button = buttonObj.AddComponent<Button>();
                 Image image = buttonObj.AddComponent<Image>();
                 image.color = buttonColor;
-
-                RectTransform rectTransform = buttonObj.GetComponent<RectTransform>();
-                rectTransform.sizeDelta = new Vector2(35, 35);
 
                 Outline outline = buttonObj.AddComponent<Outline>();
                 outline.effectColor = new Color(1f, 1f, 1f, 0.5f);
@@ -327,10 +438,50 @@ namespace TextDecorator
                 textRect.offsetMin = Vector2.zero;
                 textRect.offsetMax = Vector2.zero;
 
-                button.onClick.AddListener((UnityAction)(() => { ApplyFormatting(colorKey); }));
-
+                button.onClick.AddListener(() => ApplyFormatting(colorKey));
                 formatButtons[colorKey] = button;
+
+                if (isCustom)
+                {
+                    GameObject removeBtnObj = new GameObject("RemoveButton");
+                    removeBtnObj.transform.SetParent(buttonObj.transform, false);
+
+                    RectTransform removeRect = removeBtnObj.AddComponent<RectTransform>();
+                    removeRect.anchorMin = new Vector2(0, 1);
+                    removeRect.anchorMax = new Vector2(0, 1);
+                    removeRect.pivot = new Vector2(0, 1);
+                    removeRect.anchoredPosition = new Vector2(2, -2);
+                    removeRect.sizeDelta = new Vector2(12, 12);
+
+                    Button removeButton = removeBtnObj.AddComponent<Button>();
+                    Image removeImage = removeBtnObj.AddComponent<Image>();
+                    removeImage.color = new Color(1f, 0.2f, 0.2f); // red
+
+                    GameObject removeTextObj = new GameObject("Text");
+                    removeTextObj.transform.SetParent(removeBtnObj.transform, false);
+                    TextMeshProUGUI removeText = removeTextObj.AddComponent<TextMeshProUGUI>();
+                    removeText.text = "X";
+                    removeText.fontSize = 10;
+                    removeText.alignment = TextAlignmentOptions.Center;
+                    removeText.color = Color.white;
+
+                    RectTransform removeTextRect = removeText.GetComponent<RectTransform>();
+                    removeTextRect.anchorMin = Vector2.zero;
+                    removeTextRect.anchorMax = Vector2.one;
+                    removeTextRect.offsetMin = Vector2.zero;
+                    removeTextRect.offsetMax = Vector2.zero;
+
+                    removeButton.onClick.AddListener(() =>
+                    {
+                        GameObject.Destroy(buttonObj);
+                        formatButtons.Remove(colorKey);
+                        colorButtons.RemoveAll(b => b.TagKey == colorKey);
+                        SaveCustomColors();
+                        MelonLogger.Msg($"Removed custom color button: {colorKey}");
+                    });
+                }
             }
+
 
             private static void ApplyFormatting(string formatKey)
             {
