@@ -6,15 +6,15 @@ using UnityEngine.UI;
 using System.Collections;
 using MelonLoader.Utils;
 using Newtonsoft.Json;
-using UnityEngine.Serialization;
 
 #if MONO
 using ScheduleOne.UI;
 using TMPro;
-
+using Object = System.Object;
 #else
 using Il2CppScheduleOne.UI;
 using Il2CppTMPro;
+using Object = Il2CppSystem.Object;
 #endif
 
 
@@ -34,8 +34,9 @@ namespace TextDecorator
         public const string Version = "0.6.0";
     }
 
+
     [Serializable]
-    public struct ColorData
+    public class ColorData
     {
         public int R;
         public int G;
@@ -63,13 +64,14 @@ namespace TextDecorator
     }
 
     [Serializable]
-    public struct FormatButtonData
+    public class FormatButtonData
     {
         public string Label;
         public string TagKey;
         public ColorData ButtonColorData;
 
-        [JsonIgnore] public Color ButtonColor => ButtonColorData.ToColor();
+        [JsonIgnore]
+        public Color ButtonColor => ButtonColorData.ToColor();
 
         public FormatButtonData(string label, string tagKey, Color buttonColor)
         {
@@ -77,6 +79,12 @@ namespace TextDecorator
             TagKey = tagKey;
             ButtonColorData = ColorData.FromColor(buttonColor);
         }
+    }
+    
+    [Serializable]
+    public class CustomColorConfig
+    {
+        public System.Collections.Generic.List<FormatButtonData> customColors = [];
     }
 
 
@@ -90,19 +98,13 @@ namespace TextDecorator
             MelonLogger.Msg("TextDecorator initialized");
         }
 
-        [Serializable]
-        private class CustomColorConfig
-        {
-            public List<FormatButtonData> customColors = [];
-        }
-
 
         [HarmonyPatch(typeof(TextInputScreen))]
         public static class TextInputScreenPatch
         {
-            private static Dictionary<string, Button> formatButtons = new Dictionary<string, Button>();
+            private static System.Collections.Generic.Dictionary<string, Button> formatButtons = new System.Collections.Generic.Dictionary<string, Button>();
 
-            private static List<FormatButtonData> colorButtons = new List<FormatButtonData>
+            private static System.Collections.Generic.List<FormatButtonData> colorButtons = new System.Collections.Generic.List<FormatButtonData>
             {
                 new FormatButtonData("R", "color=#FF5555", new Color(1, 0.33f, 0.33f)),
                 new FormatButtonData("G", "color=#55FF55", new Color(0.33f, 1, 0.33f)),
@@ -111,7 +113,7 @@ namespace TextDecorator
                 new FormatButtonData("P", "color=#FF55FF", new Color(1, 0.33f, 1)),
             };
 
-            private static readonly Dictionary<string, string> formatTags = new Dictionary<string, string>
+            private static readonly System.Collections.Generic.Dictionary<string, string> formatTags = new System.Collections.Generic.Dictionary<string, string>
             {
                 { "bold", "b" },
                 { "italic", "i" },
@@ -438,7 +440,7 @@ namespace TextDecorator
                 textRect.offsetMin = Vector2.zero;
                 textRect.offsetMax = Vector2.zero;
 
-                button.onClick.AddListener(() => ApplyFormatting(colorKey));
+                button.onClick.AddListener((UnityAction)(() => ApplyFormatting(colorKey)));
                 formatButtons[colorKey] = button;
 
                 if (isCustom)
@@ -471,14 +473,14 @@ namespace TextDecorator
                     removeTextRect.offsetMin = Vector2.zero;
                     removeTextRect.offsetMax = Vector2.zero;
 
-                    removeButton.onClick.AddListener(() =>
+                    removeButton.onClick.AddListener((UnityAction)(() =>
                     {
                         GameObject.Destroy(buttonObj);
                         formatButtons.Remove(colorKey);
                         colorButtons.RemoveAll(b => b.TagKey == colorKey);
                         SaveCustomColors();
                         MelonLogger.Msg($"Removed custom color button: {colorKey}");
-                    });
+                    }));
                 }
             }
 
